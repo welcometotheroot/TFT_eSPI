@@ -25,7 +25,7 @@
 
   #if defined(STM32U5xx)
     // Linked-list DMA node storage — sized for full-screen transfer
-    #define DMA_MAX_NODE_BYTES  65535U
+    #define DMA_MAX_NODE_BYTES  65534U  // Must be even for 16-bit (halfword) DMA transfers
     #define DMA_MAX_NODES       ((TFT_WIDTH * TFT_HEIGHT * 2 + DMA_MAX_NODE_BYTES - 1) / DMA_MAX_NODE_BYTES)
     static DMA_QListTypeDef    dmaQueue;
     static DMA_NodeTypeDef     dmaNodes[DMA_MAX_NODES] __attribute__((aligned(4)));
@@ -497,8 +497,8 @@ static void startLinkedListDMA(uint8_t* buffer, uint32_t totalBytes)
   nodeConf.Init.Direction                 = DMA_MEMORY_TO_PERIPH;
   nodeConf.Init.SrcInc                    = DMA_SINC_INCREMENTED;
   nodeConf.Init.DestInc                   = DMA_DINC_FIXED;
-  nodeConf.Init.SrcDataWidth              = DMA_SRC_DATAWIDTH_BYTE;
-  nodeConf.Init.DestDataWidth             = DMA_DEST_DATAWIDTH_BYTE;
+  nodeConf.Init.SrcDataWidth              = DMA_SRC_DATAWIDTH_HALFWORD;
+  nodeConf.Init.DestDataWidth             = DMA_DEST_DATAWIDTH_HALFWORD;
   nodeConf.Init.SrcBurstLength            = 1;
   nodeConf.Init.DestBurstLength           = 1;
   nodeConf.Init.TransferAllocatedPort     = DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0;
@@ -526,9 +526,10 @@ static void startLinkedListDMA(uint8_t* buffer, uint32_t totalBytes)
   // Link queue to DMA channel (must be done after nodes are built)
   HAL_DMAEx_List_LinkQ(&dmaHal, &dmaQueue);
 
-  // Configure SPI for DMA: unlimited mode, enable TX DMA
+  // Configure SPI for 16-bit DMA: unlimited mode, enable TX DMA
   SPI_BUSY_CHECK;
   CLEAR_BIT(SPIX->CR1, SPI_CR1_SPE);                  // Disable SPI
+  MODIFY_REG(SPIX->CFG1, SPI_CFG1_DSIZE, 15 << SPI_CFG1_DSIZE_Pos); // 16-bit data frame
   MODIFY_REG(SPIX->CR2, SPI_CR2_TSIZE, 0);            // Unlimited mode
   SET_BIT(SPIX->CFG1, SPI_CFG1_TXDMAEN);              // Enable SPI TX DMA request
   SET_BIT(SPIX->CR1, SPI_CR1_SPE);                     // Enable SPI
@@ -840,6 +841,7 @@ static void dmaXferCplt(DMA_HandleTypeDef *hdma)
   CLEAR_BIT(SPIX->CFG1, SPI_CFG1_TXDMAEN);           // Disable SPI DMA request
   while (!__HAL_SPI_GET_FLAG(&spiHal, SPI_FLAG_TXC)); // Wait for SPI FIFO drain (~1µs)
   CLEAR_BIT(SPIX->CR1, SPI_CR1_SPE);                  // Disable SPI
+  MODIFY_REG(SPIX->CFG1, SPI_CFG1_DSIZE, 7 << SPI_CFG1_DSIZE_Pos); // Restore 8-bit data frame
   spiHal.State = HAL_SPI_STATE_READY;                  // Signal dmaBusy() → false
 }
 
